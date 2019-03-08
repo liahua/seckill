@@ -20,18 +20,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 
-import javax.annotation.Resource;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
- * Created by chengjinqian on 2017/4/18.
+ * @author chengjinqian
+ * @date 2017/4/18
  */
 @Service
 public class SeckillServiceImpl implements SeckillService {
-    //日志对象
+
+    /**
+     * 日志对象
+     */
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
     @Autowired
@@ -43,17 +43,19 @@ public class SeckillServiceImpl implements SeckillService {
     @Autowired
     private RedisDao redisDao;
 
-    //加入一个混淆字符串(秒杀接口)的salt，为了我避免用户猜出我们的md5值，值任意给，越复杂越好
-    private final String salt = "sadjgioqwelrhaljflutoiu293480523*&%*&*#";
 
+
+    @Override
     public List<Seckill> getSeckillList() {
         return seckillDao.queryAll(0, 4);
     }
 
+    @Override
     public Seckill getById(long seckillId) {
         return seckillDao.queryById(seckillId);
     }
 
+    @Override
     public Exposer exportSeckillUrl(long seckillId) {
         //缓存优化
         //1。访问redi
@@ -63,7 +65,8 @@ public class SeckillServiceImpl implements SeckillService {
         if (seckill == null) {
             //2.访问数据库
             seckill = seckillDao.queryById(seckillId);
-            if (seckill == null) {//说明查不到这个秒杀产品的记录
+            //说明查不到这个秒杀产品的记录
+            if (seckill == null) {
                 return new Exposer(false, seckillId);
             } else {
                 //3,放入redis
@@ -85,19 +88,22 @@ public class SeckillServiceImpl implements SeckillService {
     }
 
     private String getMD5(long seckillId) {
+        //加盐
+        //加入一个混淆字符串(秒杀接口)的salt，为了我避免用户猜出我们的md5值，值任意给，越复杂越好
+        final String salt = "sadjgioqwelrhaljflutoiu293480523*&%*&*#";
         String base = seckillId + "/" + salt;
-        String md5 = DigestUtils.md5DigestAsHex(base.getBytes());
-        return md5;
+        return DigestUtils.md5DigestAsHex(base.getBytes());
     }
 
-    @Transactional
     /**
      * 使用注解控制事务方法的优点:
      * 1.开发团队达成一致约定，明确标注事务方法的编程风格
      * 2.保证事务方法的执行时间尽可能短，不要穿插其他网络操作RPC/HTTP请求或者剥离到事务方法外部
      * 3.不是所有的方法都需要事务，如只有一条修改操作、只读操作不要事务控制
      */
-    public SeckillExecution executeSeckill(long seckillId, long userPhone, String md5) throws SeckillException, RepeatKillException, SeckillCloseException {
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public SeckillExecution executeSeckill(long seckillId, long userPhone, String md5) throws SeckillException {
         if (md5 == null || !md5.equals(getMD5(seckillId))) {
             throw new SeckillException("seckill data rewrite");
         }
@@ -123,10 +129,8 @@ public class SeckillServiceImpl implements SeckillService {
                 }
 
             }
-        } catch (SeckillCloseException e1) {
+        } catch (SeckillCloseException | RepeatKillException e1) {
             throw e1;
-        } catch (RepeatKillException e2) {
-            throw e2;
         } catch (Exception e) {
             logger.error(e.getMessage(), e);
             //所有编译器异常，转化成运行期异常
@@ -134,12 +138,13 @@ public class SeckillServiceImpl implements SeckillService {
         }
     }
 
-    public SeckillExecution executeSeckillProcedure(long seckillId, long userPhone, String md5) throws SeckillException, RepeatKillException, SeckillCloseException {
+    @Override
+    public SeckillExecution executeSeckillProcedure(long seckillId, long userPhone, String md5) throws SeckillException {
         if (md5 == null || !md5.equals(getMD5(seckillId))) {
             return new SeckillExecution(seckillId, SeckillStatEnum.DATE_REWRITE);
         }
         Date time = new Date();
-        Map<String, Object> map = new HashMap<String, Object>();
+        Map<String, Object> map = new HashMap<>(16);
         map.put("seckillId", seckillId);
         map.put("phone", userPhone);
         map.put("killTime", time);
@@ -151,7 +156,7 @@ public class SeckillServiceImpl implements SeckillService {
                 SuccessKilled successKill = successKilledDao.queryByIdWithSeckill(seckillId, userPhone);
                 return new SeckillExecution(seckillId, SeckillStatEnum.SUCCESS, successKill);
             } else {
-                return new SeckillExecution(seckillId, SeckillStatEnum.stateOf(result));
+                return new SeckillExecution(seckillId, Objects.requireNonNull(SeckillStatEnum.stateOf(result)));
             }
         } catch (Exception e) {
             logger.error(e.getMessage(), e);

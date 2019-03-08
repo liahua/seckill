@@ -49,7 +49,15 @@ public interface SeckillService {
             throws SeckillException, RepeatKillException, SeckillCloseException;
 
 
+    /**
+     * 1
+     * @param seckillId  id
+     * @param userPhone  用户标识信息
+     * @param md5   加密md5
+     * @return  成功执行？？？？
+     * @throws SeckillException  异常
+     */
     SeckillExecution executeSeckillProcedure(long seckillId,long userPhone,String md5)
-            throws SeckillException,RepeatKillException,SeckillCloseException;
+            throws SeckillException;
 
 }
